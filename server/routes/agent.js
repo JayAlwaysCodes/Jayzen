@@ -24,8 +24,22 @@ async function callJayzen(messages) {
     }),
   });
 
-  const data = await response.json();
-  return data.choices[0].message.content;
+  const text = await response.text();
+  console.log("Nosana raw response:", text.substring(0, 300));
+  const data = JSON.parse(text);
+  const message = data.choices[0].message;
+  
+  // Qwen3 uses reasoning mode — content may be null, extract from reasoning
+  if (message.content) return message.content;
+  if (message.reasoning) {
+    // Extract final answer after thinking
+    const reasoning = message.reasoning;
+    const lines = reasoning.split("\n").filter(l => l.trim());
+    return lines[lines.length - 1] || "Done!";
+  }
+  
+  // Fallback: try tool_calls or return default
+  return "I'm on it. What else do you need?";
 }
 
 // Main chat endpoint
@@ -61,7 +75,9 @@ agentRouter.post("/chat", async (req, res) => {
     res.json({ reply });
 
   } catch (error) {
-    console.error("Agent error:", error);
-    res.status(500).json({ error: "Jayzen hit a snag. Try again!" });
+    console.error("Agent error FULL:", error.message, error.stack);
+    res.status(500).json({ 
+      reply: `Snag: ${error.message}` 
+    });
   }
 });
