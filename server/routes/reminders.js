@@ -4,7 +4,7 @@ import cron from "node-cron";
 export const remindersRouter = express.Router();
 
 // Store reminders in memory
-let reminders = [];
+export let reminders = [];
 let reminderCallbacks = [];
 
 // Add a reminder

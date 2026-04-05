@@ -26,6 +26,12 @@ async function callJayzen(messages) {
 
   const text = await response.text();
   console.log("Nosana raw response:", text.substring(0, 300));
+  
+  // Handle Nosana cold start / downtime
+  if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+    throw new Error("Nosana endpoint is initializing. Please wait 30 seconds and try again!");
+  }
+  
   const data = JSON.parse(text);
   const message = data.choices[0].message;
   
@@ -61,6 +67,35 @@ agentRouter.post("/chat", async (req, res) => {
     if (lowerMsg.includes("calendar") || lowerMsg.includes("schedule") || lowerMsg.includes("event") || lowerMsg.includes("meeting")) {
       const events = await getEvents(auth, 5);
       contextData = `\n\nUpcoming calendar events:\n${JSON.stringify(events, null, 2)}`;
+    }
+
+    // Auto-create reminder if detected
+    if (lowerMsg.includes("remind") || lowerMsg.includes("reminder")) {
+      const timeMatch = message.match(/(\d{1,2})\s*(am|pm)/i);
+      const textMatch = message.match(/remind(?:er)?\s*(?:me\s*)?(?:to\s*)?(.+?)(?:\s*at\s*|\s*by\s*)\d/i);
+      
+      if (timeMatch) {
+        let hour = parseInt(timeMatch[1]);
+        const period = timeMatch[2].toLowerCase();
+        if (period === "pm" && hour !== 12) hour += 12;
+        if (period === "am" && hour === 12) hour = 0;
+        const time = `${String(hour).padStart(2, "0")}:00`;
+        const text = textMatch ? textMatch[1].trim() : message;
+
+        try {
+          const { default: cron } = await import("node-cron");
+          const { reminders } = await import("./reminders.js");
+          
+          const id = Date.now().toString();
+          const task = cron.schedule(`0 ${hour} * * *`, () => {
+            console.log(`⏰ Reminder fired: ${text}`);
+          });
+          reminders.push({ id, text, time, task });
+          contextData += `\n\nReminder successfully created: "${text}" at ${time}`;
+        } catch(e) {
+          console.error("Reminder creation error:", e.message);
+        }
+      }
     }
 
     const systemPrompt = `You are Jayzen, a personal AI productivity assistant. You help manage Gmail, Google Calendar, and reminders. You are calm, focused, and slightly GenZ — no fluff, just results. Always be concise and helpful.${contextData}`;
